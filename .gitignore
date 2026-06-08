@@ -1,0 +1,17 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Project-specific
+temp_dncnn/
+DnCNN-PyTorch/data/
+DnCNN-PyTorch/logs/
+
+# IDE
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store
