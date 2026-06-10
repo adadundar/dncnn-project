@@ -50,6 +50,8 @@ parser.add_argument("--outf", type=str, default="logs", help='Output directory f
 parser.add_argument("--mode", type=str, default="S", help='Known noise level (S) or blind training (B)')
 parser.add_argument("--noiseL", type=float, default=25, help='Noise level for mode S; ignored when mode=B')
 parser.add_argument("--val_noiseL", type=float, default=25, help='Noise level for validation')
+parser.add_argument("--start_epoch", type=int, default=0, help="Epoch to start training from (for resuming)") 
+# added resume feature (e.g. start after epoch 29 for runtime crash in colab)
 opt = parser.parse_args()
 
 
@@ -75,11 +77,38 @@ def main():
     model = nn.DataParallel(net).to(device)
     criterion = criterion.to(device)
 
+    """
     # Optimizer
     optimizer = optim.Adam(model.parameters(), lr=opt.lr)
 
     # Ensure output directory exists
     os.makedirs(opt.outf, exist_ok=True)
+    """
+
+    # Optimizer
+    optimizer = optim.Adam(model.parameters(), lr=opt.lr)
+
+    # Ensure output directory exists
+    os.makedirs(opt.outf, exist_ok=True)
+
+    # Resume support: prefer full checkpoint, fall back to weights-only
+    start_epoch = opt.start_epoch
+    checkpoint_path = os.path.join(opt.outf, 'checkpoint.pth')
+    weights_path = os.path.join(opt.outf, 'net.pth')
+    if os.path.exists(checkpoint_path):
+        print(f"Found full checkpoint at {checkpoint_path}, resuming...")
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch']
+        print(f"Resuming from epoch {start_epoch + 1}")
+    elif os.path.exists(weights_path) and opt.start_epoch > 0:
+        print(f"Found weights-only file at {weights_path}, resuming from --start_epoch {opt.start_epoch}")
+        state_dict = torch.load(weights_path, map_location=device, weights_only=False)
+        model.load_state_dict(state_dict)
+        # Optimizer state starts fresh (will rebuild momentum in a few iterations)
+    else:
+        print("No checkpoint found, starting fresh training.")
 
     # TensorBoard writer
     writer = SummaryWriter(opt.outf)
@@ -87,7 +116,7 @@ def main():
     step = 0
     noiseL_B = [0, 55]  # noise range for blind training; ignored when mode='S'
 
-    for epoch in range(opt.epochs):
+    for epoch in range(start_epoch, opt.epochs):
         # Stepwise learning rate schedule
         if epoch < opt.milestone:
             current_lr = opt.lr
@@ -171,6 +200,16 @@ def main():
         writer.add_image('reconstructed image', Irecon, epoch)
 
         # Save checkpoint after every epoch (overwrites previous)
+        # commented line torch.save(model.state_dict(), os.path.join(opt.outf, 'net.pth'))
+
+        # save full checkpoint (model + optimizer + epoch) for proper resume
+        checkpoint = {
+            'epoch': epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+        }
+        torch.save(checkpoint, os.path.join(opt.outf, 'checkpoint.pth'))
+        # Also save weights-only for inference compatibility with test_cpu.py
         torch.save(model.state_dict(), os.path.join(opt.outf, 'net.pth'))
 
     writer.close()
