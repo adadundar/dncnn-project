@@ -8,6 +8,7 @@ __pycache__/
 temp_dncnn/
 DnCNN-PyTorch/data/
 DnCNN-PyTorch/logs/
+DnCNN-PyTorch/tb_logs/
 
 # IDE
 .vscode/
